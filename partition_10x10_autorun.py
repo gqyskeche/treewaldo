@@ -1,25 +1,4 @@
 #!/usr/bin/env python3
-"""
-Partition a raster (fixed 10x10) and assign CSV bounding boxes to partitions.
-
-Place this script in the SAME folder as:
-  - exactly one GeoTIFF (*.tif)
-  - exactly one CSV (*.csv) with columns: left, bottom, right, top
-    (Optionally a 'geo_index' column like '551000_5069000' which is lower-left (xmin,ymin).)
-
-Run:
-  python partition_10x10_autorun.py
-
-Outputs (inside a new tiles folder):
-  - <tif_basename>_tiles_10x10/
-      ├─ P01.tif … P100.tif
-      └─ <csv_basename>_with_partitions.csv
-
-partition_id logic:
-  - P01…P100 if the bbox centroid lies inside one grid cell AND the bbox does not
-    touch/straddle a grid line (within tolerance).
-  - -1 if bbox touches a grid line or lies outside image bounds.
-"""
 
 import os
 import sys
@@ -43,6 +22,12 @@ except Exception:
 ROWS = 10
 COLS = 10
 BOUNDARY_TOL = 0.0   # meters. Set >0 to treat "near-line" as on-boundary.
+
+# If the raster lacks a valid geotransform but we can recover LOWER-LEFT
+# from the filename/CSV, use this pixel size (meters/px) to reconstruct bounds.
+# You can override without editing code:
+#   PIXEL_SIZE=0.5 python partition_10x10_autorun.py
+PIXEL_SIZE_FALLBACK = float(os.getenv("PIXEL_SIZE", "1.0"))
 
 # ---------- Helpers ----------
 def find_single(pattern: str) -> str:
@@ -76,7 +61,6 @@ def parse_lower_left_from_geo_index(df):
     """
     if "geo_index" not in df.columns:
         return None
-    # take mode of geo_index to avoid mixed tiles
     val = df["geo_index"].dropna().astype(str).mode()
     if val.empty:
         return None
@@ -138,13 +122,12 @@ def export_tiles_pixel(ds, out_dir):
                 dst.write(data)
 
 def save_csv(df, out_csv_path):
-    # Excel-friendly CSV (BOM + CRLF)
-    df.to_csv(out_csv_path, index=False, encoding="utf-8-sig", lineterminator="\r\n", quoting=csv.QUOTE_MINIMAL)
+    df.to_csv(out_csv_path, index=False, encoding="utf-8-sig",
+              lineterminator="\r\n", quoting=csv.QUOTE_MINIMAL)
     print(f"CSV with partitions: {out_csv_path}")
 
 # ---------- Main ----------
 def main():
-    # Locate inputs
     tif_path = find_single("*.tif")
     csv_path = find_single("*.csv")
 
@@ -157,10 +140,8 @@ def main():
     print(f"Using CSV: {csv_path}")
     print(f"Tiles output dir: {out_tiles_dir}")
 
-    # Read CSV first (we may use geo_index fallback)
     df = pd.read_csv(csv_path)
 
-    # Open raster & determine bounds (prefer real transform, else lower-left from TIF name, else geo_index)
     with rasterio.open(tif_path) as ds:
         if (ds.transform is not None) and (ds.transform != Affine.identity()):
             xmin, ymin, xmax, ymax = ds.bounds.left, ds.bounds.bottom, ds.bounds.right, ds.bounds.top
@@ -174,18 +155,20 @@ def main():
                 ll = parse_lower_left_from_geo_index(df)
             if ll is not None:
                 xmin, ymin = ll
-                xmax = xmin + 1000.0
-                ymax = ymin + 1000.0
+                px = PIXEL_SIZE_FALLBACK
+                xmax = xmin + ds.width * px
+                ymax = ymin + ds.height * px
                 map_ready = True
-                print(f"Reconstructed LOWER-LEFT bounds: xmin={xmin}, ymin={ymin}, xmax={xmax}, ymax={ymax}")
+                print(
+                    f"Reconstructed bounds using pixel size {px} m/px and raster size "
+                    f"({ds.width}x{ds.height}): xmin={xmin}, ymin={ymin}, xmax={xmax}, ymax={ymax}"
+                )
             else:
                 map_ready = False
                 print("Could not reconstruct map bounds. Will export tiles, but partition_id will be -1 for all rows.")
 
-        # Export tiles
         export_tiles_pixel(ds, out_tiles_dir)
 
-    # Ensure required columns exist & numeric
     required_cols = {"left", "bottom", "right", "top"}
     if not required_cols.issubset(df.columns):
         print(f"ERROR: CSV must contain columns: {sorted(required_cols)}")
@@ -193,7 +176,6 @@ def main():
     for col in ["left", "bottom", "right", "top"]:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    # Assign partition_id
     out_csv_path = os.path.join(out_tiles_dir, f"{csv_base}_with_partitions.csv")
     partition_ids = []
     if map_ready:
@@ -212,8 +194,6 @@ def main():
         partition_ids = [-1] * len(df)
 
     df["partition_id"] = partition_ids
-
-    # Save CSV (inside tiles folder)
     save_csv(df, out_csv_path)
 
     print("Done.")
