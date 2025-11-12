@@ -19,11 +19,6 @@ def find_single(pattern: str):
         raise Exception(f"ERROR: Multiple files match {pattern}: {files}")
     return files[0]
 
-def save_csv(df, out_csv_path):
-    df.to_csv(out_csv_path, index=False, encoding="utf-8-sig",
-              lineterminator="\r\n", quoting=csv.QUOTE_MINIMAL)
-    print(f"CSV with partitions: {out_csv_path}")
-
 # Main Program
 # TODO: In the future make it so I don't have to be in the same dir, obtain path
 tif_path = find_single("*.tif")
