@@ -82,21 +82,26 @@ print("Grid difference:", dx, "x", dy)
 partition_ids = []
 for _, row in df.iterrows():
     left, bottom, right, top = row["left"], row["bottom"], row["right"], row["top"]
-    # Determine which partitions the bbox is in
-    left_p = int(np.floor((left - xmin) / dx))
-    right_p = int(np.floor((right - xmin) / dx))
-    bottom_p = int(np.floor((bottom - ymin) / dy))
-    top_p = int(np.floor((top - ymin) / dy))
-
-    # Clip to valid indices fior edge interaction
-    left_p = np.clip(left_p, 0, COLS - 1)
-    right_p = np.clip(right_p, 0, COLS - 1)
-    bottom_p = np.clip(bottom_p, 0, ROWS - 1)
-    top_p = np.clip(top_p, 0, ROWS - 1)
-    if left_p != right_p or bottom_p != top_p:
-        pid = "-1" 
+    geo_index = row["geo_index"]
+    if geo_index != "551000_5069000":
+        pid = "-1"
+        # might be a way to set the rest of the column values and quite rather than loop to next
     else:
-        pid = f"P{int((ROWS - bottom_p - 1) * COLS + left_p)}"
+        # Determine which partitions the bbox is in
+        left_p = int(np.floor((left - xmin) / dx))
+        right_p = int(np.floor((right - xmin) / dx))
+        bottom_p = int(np.floor((bottom - ymin) / dy))
+        top_p = int(np.floor((top - ymin) / dy))
+
+        # Clip to valid indices 
+        left_p = np.clip(left_p, 0, COLS - 1)
+        right_p = np.clip(right_p, 0, COLS - 1)
+        bottom_p = np.clip(bottom_p, 0, ROWS - 1)
+        top_p = np.clip(top_p, 0, ROWS - 1)
+        if left_p != right_p or bottom_p != top_p:
+            pid = "-1" 
+        else:
+            pid = f"P{int((ROWS - bottom_p - 1) * COLS + left_p)}"
     partition_ids.append(pid)
 
 print("Number of bad trees", partition_ids.count("-1"))
