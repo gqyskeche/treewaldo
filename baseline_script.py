@@ -36,6 +36,9 @@ def detect_boxes(image_path):
         print(f"WARNING: Could not read {image_path.name}")
         return []
 
+    # Get image height to invert axis later
+    height, _ = img.shape[:2]
+
     # Keep only RGB if image has extra channels (alpha/NIR)
     if len(img.shape) == 3 and img.shape[2] > 3:
         img = img[:, :, :3]
@@ -70,7 +73,7 @@ def detect_boxes(image_path):
         out_path = DEBUG_DIR / f"{image_path.stem}_boxes.jpg"
         cv2.imwrite(str(out_path), vis)
 
-    return boxes
+    return boxes, height
 
 # Main Program
 records = []
@@ -80,13 +83,13 @@ if not tif_files:
 else:
     print(f"Processing {len(tif_files)} tif files")
     for img_path in tif_files:
-        boxes = detect_boxes(img_path)
+        boxes, height = detect_boxes(img_path)
         for (x1, y1, x2, y2, area) in boxes:
             records.append({
                 "left": x1,
-                "bottom": y2,
+                "bottom": height - y2,
                 "right": x2,
-                "top": y1,
+                "top": height - y1,
                 "score": 1.0,
                 "label": "Tree",
                 "height": np.nan,
