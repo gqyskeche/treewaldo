@@ -26,7 +26,7 @@ csv_path = find_single("*.csv")
 # parent_dir = os.path.dirname
 # out_dir = os.path.join(parent_dir, "output")
 
-out_dir = "output"
+out_dir = "partition_output"
 os.makedirs(out_dir, exist_ok=True)
 print(f"TIF: {tif_path}")
 print(f"CSV: {csv_path}")

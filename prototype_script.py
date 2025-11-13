@@ -20,7 +20,7 @@ CROP_DEBUG = DATA_DIR / "crop_debug"
 DEBUG_DIR.mkdir(exist_ok=True)
 CROP_DEBUG.mkdir(exist_ok=True)
 
-# Main Parameters
+# Hyperparameter Setup and Settings
 PATCH_SIZE = 48
 STRIDE = 8
 THRESHOLD_PERCENTILE = 40
@@ -38,14 +38,15 @@ if DEVICE == "cuda":
 
 # Parse CSV and filtering data
 df = pd.read_csv(CSV_PATH, dtype={'partition_id': str})
-df.loc[~df["shp_path"].str.contains("551000_5069000", na=False), "partition_id"] = "-1"
+# Technically partitioning sets all non plot processed partition id to -1 already but just in case 
+df.loc[~(df["geo_index"] == "551000_5069000"), "partition_id"] = "-1" 
 df = df[df["partition_id"] != "-1"]
 tile_ids = df["partition_id"].unique()
 print(f"Loaded {len(df)} crowns across {len(tile_ids)} tiles")
 
 #  Georeferencing the tiles
 def get_tile_bounds(tile_id: str):
-    tile_num = int(tile_id[1:]) + 1  # offset fix
+    tile_num = int(tile_id[1:]) # offset fix, pretty sure I fixed the offset when the partitions became 0-99 but we'll see
     img_path = DATA_DIR / f"P{tile_num:02d}.tif"
     if not img_path.exists():
         raise FileNotFoundError(f"Missing image for {tile_id}")
@@ -73,6 +74,7 @@ def add_texture_channel(img):
 
 # Dataset class for going through the patches
 class TreePatchDataset(Dataset):
+    # TODO: add type annotation, cba going back every time
     def __init__(self, tiles, df, patch_size=64, neg_ratio=1.0, debug_save=False):
         self.samples = []
         total_pos, total_neg = 0, 0
@@ -82,15 +84,15 @@ class TreePatchDataset(Dataset):
             print(f"[{i+1}/{len(tiles)}] Processing {tile_id}...")
             try:
                 left, right, bottom, top = get_tile_bounds(tile_id)
-                tile_num = int(tile_id[1:]) + 1
-                img_path = DATA_DIR / f"P{tile_num:02d}.tif"
+                tile_num = int(tile_id[1:]) + 1             # Have to slice after 1 because it's P## btw
+                img_path = DATA_DIR / f"P{tile_num}.tif"
                 if not img_path.exists():
-                    print(f"Missing {img_path.name}, Continuing")
+                    print(f"Missing {img_path.name}")
                     continue
 
                 img = cv2.imread(str(img_path))
                 if img is None:
-                    print(f"Could not read {img_path.name}, Continuing.")
+                    print(f"Could not read {img_path.name}")
                     continue
 
                 h, w = img.shape[:2]
