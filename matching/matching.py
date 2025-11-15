@@ -2,8 +2,9 @@ import pandas as pd
 import timeit
 
 REF_CSV = "a_trees_with_partitions.csv"  # reference bounding boxes in meters
-PRED_CSV = "baseline_boxes.csv"  # predicted bounding boxes (same units)
-OVERLAP_THRESHOLD = 0.3  # IoR threshold
+# cnn_boxes | baseline_boxes
+PRED_CSV = "cnn_boxes.csv"  # predicted bounding boxes(most likely in pixel units top left is 0)
+OVERLAP_THRESHOLD = 0.5  # IoR threshold
 
 def bbox_iou(ref, pred):
     """Intersection over reference area"""
@@ -43,11 +44,13 @@ def pixel_to_utm(row):
 start = timeit.default_timer()
 
 pred_df = pred_df.apply(pixel_to_utm, axis=1)
-print("first 10 predictions", pred_df.head(10))
+# print("first 10 predictions", pred_df.head(10))
 
-correct = 0
-i = 0
-valid_count = 0
+TP = 0
+FP = 0
+FN = 0
+i = 0   # Iterations
+pred_matched = {pid: set() for pid in pred_df["partition_id"].unique()} # Mark predicted trees used for precision(subtract set)
 for _, ref in ref_df.iterrows():
     ref_box = [ref.left, ref.bottom, ref.right, ref.top]
     pid = ref["partition_id"]
@@ -63,23 +66,38 @@ for _, ref in ref_df.iterrows():
         print("Iteration:", i)
     
     i += 1
-    valid_count += 1
 
     # Only check predictions in the same partition
     preds_in_pid = pred_df[pred_df["partition_id"] == pid]
     
-    matched = False
+    best_iou = 0
     
-    for _, pred in preds_in_pid.iterrows():
+    for pred_idx, pred in preds_in_pid.iterrows():
         pred_box = [pred.left, pred.bottom, pred.right, pred.top]
-        if bbox_iou(ref_box, pred_box) >= OVERLAP_THRESHOLD:
-            matched = True
-            break
-    if matched:
-        correct += 1
+        iou = bbox_iou(ref_box, pred_box)
+        
+        if iou > best_iou:
+            best_iou = iou
+            pred_matched[pid].add(pred_idx)
 
-accuracy = correct / valid_count
-print(f"Detected {correct}/{valid_count} trees correctly ({accuracy*100:.2f}% accuracy)")
+    if best_iou >= OVERLAP_THRESHOLD:
+        TP += 1
+    else:
+        FN += 1 # Since there no BB corresponding to reference BBox
+
+# Determine how many predicted trees were not used(FP)
+for pid, group in pred_df.groupby("partition_id"):
+    for pred_idx in group.index:
+        if pred_idx not in pred_matched[pid]:
+            FP += 1
+
+recall = TP / (TP+FN)       if TP + FN > 0 else 0
+precision = TP / (TP + FP)  if TP + FP > 0 else 0
+f1_score = 2 * (recall * precision) / (recall + precision)  if (recall + precision) > 0 else 0
+print(f"TP: {TP} | FP: {FP} | FN: {FN}")
+print(f"Detected {TP}/{TP+FP} prediction trees correctly ({precision*100:.2f}% Precision)")
+print(f"Detected {TP}/{TP+FN} reference trees correctly ({recall*100:.2f}% Recall)")
+print(f"F1 Score: {f1_score}")
 
 end = timeit.default_timer()
 print("Elasped time:", end - start)

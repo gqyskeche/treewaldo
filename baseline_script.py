@@ -58,7 +58,7 @@ def detect_boxes(image_path):
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
 
-    num, _, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
+    num, _, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)   #  Area computed here is very wrong
     boxes = []
     for i in range(1, num):
         x, y, w, h, area = stats[i]
