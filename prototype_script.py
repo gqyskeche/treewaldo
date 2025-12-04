@@ -13,7 +13,7 @@ from skimage.feature import peak_local_max
 from skimage.segmentation import watershed
 from scipy.ndimage import distance_transform_edt
 
-# DDirectory Paths
+# Directory Paths
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "partition_output"
 CSV_PATH = DATA_DIR / "a_trees_with_partitions.csv"
@@ -33,7 +33,7 @@ EPOCHS = 10
 BATCH_SIZE = 32
 LR = 1e-3
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-force_rerun = False
+force_rerun = True
 
 print(f"Using device: {DEVICE}")
 if DEVICE == "cuda":
@@ -549,34 +549,34 @@ def nms(boxes, iou_threshold=0.5):
     return [boxes[i] for i in keep]
 
 # Running detection on all images and saving results
-records = []
-tifs = sorted(list(DATA_DIR.glob("*.tif")))
-print(f"{len(tifs)} images were found for detection.")
-for img_path in tifs:
-    img = cv2.imread(str(img_path))
-    if img is None:
-        continue
-    boxes = detect_boxes(img, model, img_path)
-    boxes = nms(boxes, iou_threshold=0.1)
-    print(f"Detected {len(boxes)} crowns in {img_path.name}")
+# records = []
+# tifs = sorted(list(DATA_DIR.glob("*.tif")))
+# print(f"{len(tifs)} images were found for detection.")
+# for img_path in tifs:
+#     img = cv2.imread(str(img_path))
+#     if img is None:
+#         continue
+#     boxes = detect_boxes(img, model, img_path)
+#     boxes = nms(boxes, iou_threshold=0.1)
+#     print(f"Detected {len(boxes)} crowns in {img_path.name}")
 
-    # Drawing rectangles
-    vis = img.copy()
-    for (x1, y1, x2, y2, _) in boxes:
-        cv2.rectangle(vis, (x1, y1), (x2, y2), (0, 0, 255), 2)
-    cv2.imwrite(str(DEBUG_DIR / f"{img_path.stem}_cnn_boxes.jpg"), vis)
+#     # Drawing rectangles
+#     vis = img.copy()
+#     for (x1, y1, x2, y2, _) in boxes:
+#         cv2.rectangle(vis, (x1, y1), (x2, y2), (0, 0, 255), 2)
+#     cv2.imwrite(str(DEBUG_DIR / f"{img_path.stem}_cnn_boxes.jpg"), vis)
 
-    # Adding to csv list
-    # TODO: implement confidence
-    for (x1, y1, x2, y2, area) in boxes:
-        records.append({
-            "left": x1, "bottom": 1000-y2, "right": x2, "top": 1000-y1,
-            "score": 1.0, "label": "Tree", "height": np.nan, "area": area,
-            "Site": "ABBY", "partition_id": img_path.stem
-        })
+#     # Adding to csv list
+#     # TODO: implement confidence
+#     for (x1, y1, x2, y2, area) in boxes:
+#         records.append({
+#             "left": x1, "bottom": 1000-y2, "right": x2, "top": 1000-y1,
+#             "score": 1.0, "label": "Tree", "height": np.nan, "area": area,
+#             "Site": "ABBY", "partition_id": img_path.stem
+#         })
 
-pd.DataFrame(records).to_csv(OUTPUT_CSV, index=False)
-print(f"\nSaved {len(records)} boxes to {OUTPUT_CSV}")
+# pd.DataFrame(records).to_csv(OUTPUT_CSV, index=False)
+# print(f"\nSaved {len(records)} boxes to {OUTPUT_CSV}")
 
 end = timeit.default_timer()
 print(f"Training Time: {train_time - start:.2f}")
