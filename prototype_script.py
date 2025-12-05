@@ -16,7 +16,8 @@ from scipy.ndimage import distance_transform_edt
 # Directory Paths
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "partition_output"
-CSV_PATH = DATA_DIR / "a_trees_with_partitions.csv"
+INPUT_DIR = BASE_DIR / "input_photos"
+CSV_PATH = BASE_DIR / "a_trees_with_partitions_multi_image.csv"
 OUTPUT_CSV = DATA_DIR / "cnn_boxes.csv"
 MODEL_PATH = DATA_DIR / "texture_cnn_model.pth"
 DEBUG_DIR = DATA_DIR / "cnn_debug"
@@ -60,7 +61,7 @@ def add_texture_channel(img):
 start = timeit.default_timer()
 
 # Compute RGB mean and std across entire dataset
-image_list = [DATA_DIR / f"P{i}.tif" for i in range(100)]
+image_list = sorted(INPUT_DIR.glob("P*.tif"))
 pixel_sum = np.zeros(4, dtype=np.float64)
 pixel_sq_sum = np.zeros(4, dtype=np.float64)
 pixel_count = 0
@@ -92,8 +93,12 @@ print("STD(RGB, Texture):", STD)
 # Parse CSV and filtering data
 df = pd.read_csv(CSV_PATH, dtype={'partition_id': str})
 # Technically partitioning sets all non plot processed partition id to -1 already but just in case 
-df.loc[~(df["geo_index"] == "551000_5069000"), "partition_id"] = "-1" 
+# df.loc[~(df["geo_index"] == "551000_5069000"), "partition_id"] = "-1" 
+# df = df[df["partition_id"] != "-1"]
+
+# Multi plot execution
 df = df[df["partition_id"] != "-1"]
+
 tile_ids = df["partition_id"].unique()
 print(f"Loaded {len(df)} crowns across {len(tile_ids)} tiles")
 
@@ -102,12 +107,13 @@ print(f"Loaded {len(df)} crowns across {len(tile_ids)} tiles")
 #  Georeferencing the tiles
 def get_tile_bounds(tile_id: str):
     tile_num = int(tile_id[1:]) # offset fix, pretty sure I fixed the offset when the partitions became 0-99 but we'll see
-    img_path = DATA_DIR / f"P{tile_num}.tif"
+    img_path = INPUT_DIR / f"P{tile_num}.tif"
     if not img_path.exists():
         raise FileNotFoundError(f"Missing image for {tile_id}")
     with rasterio.open(img_path) as src:
         bounds = src.bounds
     return bounds.left, bounds.right, bounds.bottom, bounds.top
+
 
 # Splitting the training and validation sets
 np.random.seed(42)
@@ -116,6 +122,7 @@ split_idx = int(len(tile_ids) * 0.8)
 train_tiles = tile_ids[:split_idx]
 val_tiles = tile_ids[split_idx:]
 print(f"Training tiles: {len(train_tiles)} | Validation tiles: {len(val_tiles)}")
+
 
 # Dataset class for going through the patches
 class TreePatchDataset(Dataset):
@@ -130,7 +137,7 @@ class TreePatchDataset(Dataset):
             try:
                 left, right, bottom, top = get_tile_bounds(tile_id)
                 tile_num = int(tile_id[1:])             # Have to slice after 1 because it's P## btw
-                img_path = DATA_DIR / f"P{tile_num}.tif"
+                img_path = INPUT_DIR / f"P{tile_num}.tif"
                 if not img_path.exists():
                     print(f"Missing {img_path.name}")
                     continue
@@ -549,34 +556,34 @@ def nms(boxes, iou_threshold=0.5):
     return [boxes[i] for i in keep]
 
 # Running detection on all images and saving results
-# records = []
-# tifs = sorted(list(DATA_DIR.glob("*.tif")))
-# print(f"{len(tifs)} images were found for detection.")
-# for img_path in tifs:
-#     img = cv2.imread(str(img_path))
-#     if img is None:
-#         continue
-#     boxes = detect_boxes(img, model, img_path)
-#     boxes = nms(boxes, iou_threshold=0.1)
-#     print(f"Detected {len(boxes)} crowns in {img_path.name}")
+records = []
+tifs = sorted(list(INPUT_DIR.glob("*.tif")))
+print(f"{len(tifs)} images were found for detection.")
+for img_path in tifs:
+    img = cv2.imread(str(img_path))
+    if img is None:
+        continue
+    boxes = detect_boxes(img, model, img_path)
+    boxes = nms(boxes, iou_threshold=0.1)
+    print(f"Detected {len(boxes)} crowns in {img_path.name}")
 
-#     # Drawing rectangles
-#     vis = img.copy()
-#     for (x1, y1, x2, y2, _) in boxes:
-#         cv2.rectangle(vis, (x1, y1), (x2, y2), (0, 0, 255), 2)
-#     cv2.imwrite(str(DEBUG_DIR / f"{img_path.stem}_cnn_boxes.jpg"), vis)
+    # Drawing rectangles
+    vis = img.copy()
+    for (x1, y1, x2, y2, _) in boxes:
+        cv2.rectangle(vis, (x1, y1), (x2, y2), (0, 0, 255), 2)
+    cv2.imwrite(str(DEBUG_DIR / f"{img_path.stem}_cnn_boxes.jpg"), vis)
 
-#     # Adding to csv list
-#     # TODO: implement confidence
-#     for (x1, y1, x2, y2, area) in boxes:
-#         records.append({
-#             "left": x1, "bottom": 1000-y2, "right": x2, "top": 1000-y1,
-#             "score": 1.0, "label": "Tree", "height": np.nan, "area": area,
-#             "Site": "ABBY", "partition_id": img_path.stem
-#         })
+    # Adding to csv list
+    # TODO: implement confidence
+    for (x1, y1, x2, y2, area) in boxes:
+        records.append({
+            "left": x1, "bottom": 1000-y2, "right": x2, "top": 1000-y1,
+            "score": 1.0, "label": "Tree", "height": np.nan, "area": area,
+            "Site": "ABBY", "partition_id": img_path.stem
+        })
 
-# pd.DataFrame(records).to_csv(OUTPUT_CSV, index=False)
-# print(f"\nSaved {len(records)} boxes to {OUTPUT_CSV}")
+pd.DataFrame(records).to_csv(OUTPUT_CSV, index=False)
+print(f"\nSaved {len(records)} boxes to {OUTPUT_CSV}")
 
 end = timeit.default_timer()
 print(f"Training Time: {train_time - start:.2f}")
