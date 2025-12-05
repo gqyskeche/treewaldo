@@ -5,7 +5,7 @@ import re
 from collections import defaultdict
 import matplotlib.pyplot as plt
 
-REF_CSV = "a_trees_with_partitions.csv"  # reference bounding boxes in meters
+REF_CSV = "a_trees_with_partitions_multi_image.csv"  # reference bounding boxes in meters
 # cnn_boxes | baseline_boxes
 PRED_CSV = "cnn_boxes.csv"  # predicted bounding boxes(most likely in pixel units top left is 0)
 OVERLAP_THRESHOLD = 0.5  # IoR threshold

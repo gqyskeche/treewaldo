@@ -1,5 +1,6 @@
 # Data
 *.tif
 *.csv
+*.png
 partition_output
 input_photos
