@@ -9,6 +9,7 @@ REF_CSV = "a_trees_with_partitions.csv"  # reference bounding boxes in meters
 # cnn_boxes | baseline_boxes
 PRED_CSV = "cnn_boxes.csv"  # predicted bounding boxes(most likely in pixel units top left is 0)
 OVERLAP_THRESHOLD = 0.5  # IoR threshold
+missing_origin_warned = set()
 
 def extract_origin(geo_index_str):
     if pd.isna(geo_index_str):
@@ -20,7 +21,6 @@ def extract_origin(geo_index_str):
     return None, None
 
 def save_reduced_confusion_matrix(TP, FP, FN, out_path="reduced_confusion_matrix_fancy.png"):
-    # Matrix with TN = None → we treat as np.nan for visualization
     data = np.array([
         [TP, FN],
         [FP, np.nan]
@@ -31,12 +31,10 @@ def save_reduced_confusion_matrix(TP, FP, FN, out_path="reduced_confusion_matrix
 
     fig, ax = plt.subplots(figsize=(6, 4))
 
-    # Heatmap with a colormap (nan is rendered white)
     cmap = plt.cm.Blues
     masked_data = np.ma.masked_invalid(data)
     heatmap = ax.imshow(masked_data, cmap=cmap)
 
-    # Add text annotations
     for i in range(data.shape[0]):
         for j in range(data.shape[1]):
             val = data[i, j]
@@ -46,29 +44,20 @@ def save_reduced_confusion_matrix(TP, FP, FN, out_path="reduced_confusion_matrix
                     fontsize=12, fontweight="bold",
                     color="black")
 
-    # Title
     plt.title("Reduced Confusion Matrix", fontsize=14, pad=16)
-
-    # Tick labels
     ax.set_xticks(np.arange(len(col_labels)))
     ax.set_yticks(np.arange(len(row_labels)))
     ax.set_xticklabels(col_labels, fontsize=11)
     ax.set_yticklabels(row_labels, fontsize=11)
-
-    # Rotate column labels
     plt.setp(ax.get_xticklabels(), rotation=20, ha="right", rotation_mode="anchor")
-
-    # Turn off ticks
     ax.tick_params(top=False, bottom=False, left=False, right=False)
 
-    # Draw grid lines
     for edge, spine in ax.spines.items():
         spine.set_visible(False)
 
     ax.set_xticks(np.arange(-0.5, 2, 1), minor=True)
     ax.set_yticks(np.arange(-0.5, 2, 1), minor=True)
     ax.grid(which="minor", color="black", linestyle="-", linewidth=1)
-
     plt.savefig(out_path, dpi=220, bbox_inches="tight")
     plt.close()
 
@@ -100,32 +89,60 @@ for pid, group in ref_df.groupby("partition_id"):
     ox, oy = extract_origin(geo_idx)
     if ox is not None and oy is not None:
         partition_origin[pid] = (ox, oy)
+        print(f"Partition {pid} origin: ({ox}, {oy})")
+        
 
-# optional: choose a fallback origin if something is missing
+# optional: choose a fallback origin if something is missing back to original ABBY image
 DEFAULT_ORIGIN_X = 551000
 DEFAULT_ORIGIN_Y = 5069000
 
 def pixel_to_utm(row):
     pid_str = str(row["partition_id"])
-    pid_num = int(pid_str[1:])  # 'P01' -> 1
 
-    # look up origin for this partition; fall back if missing
-    origin_x, origin_y = partition_origin.get(pid_str, (DEFAULT_ORIGIN_X, DEFAULT_ORIGIN_Y))
+    # Optional: skip invalid sentinel partitions
+    if pid_str == "-1":
+        return row
 
-    # offsets inside ABBY tile, based on sub-partition index
-    x_off = 100 * (pid_num % 10)
-    y_off = 900 - 100 * (pid_num // 10)
+    origin = partition_origin.get(pid_str)
 
-    # convert pixel -> UTM
-    row["left"]   = row["left"] * 0.1 + origin_x + x_off
-    row["right"]  = row["right"] * 0.1 + origin_x + x_off
-    row["bottom"] = row["bottom"] * 0.1 + origin_y + y_off
-    row["top"]    = row["top"] * 0.1 + origin_y + y_off
+    # If this partition has no GT trees, it won't be in partition_origin.
+    # We don't need UTM coords for IoR (there is no ref box to compare to),
+    # so just leave the box as-is (or only scale if you want).
+    if origin is None:
+        if pid_str not in missing_origin_warned:
+            print(f"[WARN] No origin for partition_id={pid_str}; "
+                  "leaving coords in pixel space (used only for FP counting).")
+            missing_origin_warned.add(pid_str)
+        return row   # <- no transform needed for evaluation
+
+    origin_x, origin_y = origin
+
+    # Numeric index of the partition, assuming format "p123"
+    pid_num = int(pid_str[1:])
+
+    # Local index (0–99) inside a 10x10 grid, resets every 100 partitions
+    local = pid_num % 100
+    col   = local % 10
+    row_i = local // 10
+
+    x_off = 100 * col
+    y_off = 900 - 100 * row_i
+
+    scale = 0.1  # pixel -> meters
+
+    row["left"]   = row["left"]  * scale + origin_x + x_off
+    row["right"]  = row["right"] * scale + origin_x + x_off
+    row["bottom"] = row["bottom"]* scale + origin_y + y_off
+    row["top"]    = row["top"]   * scale + origin_y + y_off
+
     return row
 
 start = timeit.default_timer()
 
 pred_df = pred_df.apply(pixel_to_utm, axis=1)
+
+print("Number of partitions with origin:", len(partition_origin))
+print("Example origins:", list(partition_origin.items())[:5])
 # print("first 10 predictions", pred_df.head(10))
 
 TP = 0
@@ -151,6 +168,7 @@ for _, ref in ref_df.iterrows():
     if i % 500 == 0: 
         print("Partition ID:", pid)
         print("Iteration:", i)
+        print("Current TP, FP, FN:", TP, FP, FN)
     
     i += 1
 
